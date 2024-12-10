@@ -8,10 +8,12 @@ Note: one paper may be included in several categories (e.g. a paper may introduc
 
 ## Table of Contents
 
-- [PKC-based PSI](#pkc-based-psi)
-- [OT-based PSI](#ot-based-psi)
-- [VOLE-based PSI](#vole-based-psi)
-- [Other Variants](#other-variants)
+- [Private Set Intersection (PSI)](#private-set-intersection-psi)
+  - [Table of Contents](#table-of-contents)
+  - [PKC-based PSI](#pkc-based-psi)
+  - [OT-based PSI](#ot-based-psi)
+  - [VOLE-based PSI](#vole-based-psi)
+  - [Other Variants](#other-variants)
 
 ## PKC-based PSI
 
@@ -44,6 +46,10 @@ Note: one paper may be included in several categories (e.g. a paper may introduc
   SIGMOD 2003, [eprint](https://www.cs.cornell.edu/aevf/research/SIGMOD_2003.pdf), AES03
 
 ## OT-based PSI
+
+- Faster Secure Comparisons with Offline Phase for Efficient Private Set Intersection
+  Florian Kerschbaum, Erik-Oliver Blass, Rasoul Akhavan Mahdavi
+  NDSS 2023, [ndss](https://www.ndss-symposium.org/ndss-paper/faster-secure-comparisons-with-offline-phase-for-efficient-private-set-intersection/)
 
 - Circuit-PSI with Linear Complexity via Relaxed Batch OPPRF
   *Nishanth Chandran, Divya Gupta, Akash Shah*
@@ -120,3 +126,15 @@ Note: one paper may be included in several categories (e.g. a paper may introduc
 - PIR-PSI: Scaling Private Contact Discovery
   *Daniel Demmler, Peter Rindal, Mike Rosulek, Ni Trieu*
   PETS 2018, [eprint](https://eprint.iacr.org/2018/579), DRRT18
+
+- Fast Private Set Intersection from Homomorphic Encryption
+  *Hao Chen, Kim Laine, Peter Rindal*
+  CCS 2017, [eprint](https://eprint.iacr.org/2017/299.pdf), CLR17
+
+- Structure-Aware Private Set Intersection with Applications to Fuzzy Matching
+  *Gayathri Garimella, Mike Rosulek, Jaspal Singh*
+  CRYPTO 2022, [eprint](https://eprint.iacr.org/2022/1011.pdf), GRS22
+
+- Malicious Secure, Structure-Aware Private Set Intersection
+  *Gayathri Garimella, Mike Rosulek, Jaspal Singh*
+  CRYPTO 2023, [eprint](https://eprint.iacr.org/2023/1166), GRS23

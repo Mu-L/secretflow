@@ -16,10 +16,8 @@ from typing import Any, Dict, List, Union
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler as SkMinMaxScaler
-from sklearn.preprocessing import StandardScaler as SkStandardScaler
 
-from secretflow.data.base import Partition
+from secretflow.data import Partition
 from secretflow.data.horizontal import HDataFrame
 from secretflow.data.mix import MixDataFrame, PartitionWay
 from secretflow.data.vertical import VDataFrame
@@ -29,90 +27,50 @@ from secretflow.security.aggregation import Aggregator
 from secretflow.utils.errors import InvalidArgumentError
 
 
-class MinMaxScaler(_PreprocessBase):
-    """Transform features by scaling each feature to a given range.
-
-    Attributes:
-        _scaler: the sklearn MinMaxScaler instance.
-
-    Examples:
-        >>> from secretflow.preprocessing import MinMaxScaler
-        >>> scaler = MinMaxScaler()
-        >>> scaler.fit(df)
-        >>> scaler.transform(df)
+class _STDScaler:
+    """
+    Standard scaler for pd.DataFrame, which is used to replace sklearn.preprocessing.StandardScaler
     """
 
-    @staticmethod
-    def _check_dataframe(df):
-        assert isinstance(
-            df, (HDataFrame, VDataFrame, MixDataFrame)
-        ), f'Accepts HDataFrame/VDataFrame/MixDataFrame only but got {type(df)}'
+    def __init__(self, *, with_mean=True, with_std=True):
+        self.with_mean = with_mean
+        self.with_std = with_std
 
-    def fit(self, df: Union[HDataFrame, VDataFrame, MixDataFrame]):
-        """Compute the minimum and maximum for later scaling."""
-        self._check_dataframe(df)
-        min_max = pd.concat(
-            [
-                df.min().to_frame(name='min').transpose(),
-                df.max().to_frame(name='max').transpose(),
-            ]
-        )
-        self._scaler = SkMinMaxScaler()
-        self._scaler.fit(min_max)
-        self._columns = df.columns
-
-    def _transform(
-        self, df: Union[HDataFrame, VDataFrame]
-    ) -> Union[HDataFrame, VDataFrame]:
-        transformed_parts = {}
-
-        def _df_transform(scaler: SkMinMaxScaler, df: pd.DataFrame):
-            new_df = df.copy()
-            new_df.iloc[:, :] = scaler.transform(df)
-            return new_df
-
-        for device, part in df.partitions.items():
-            scaler = SkMinMaxScaler()
-            mask = np.in1d(
-                self._scaler.feature_names_in_, part.dtypes.index, assume_unique=True
-            )
-            scaler.fit(
-                np.stack([self._scaler.data_min_[mask], self._scaler.data_max_[mask]])
-            )
-            transformed_parts[device] = Partition(
-                device(_df_transform)(scaler, part.data)
-            )
-
-        new_df = df.copy()
-        new_df.partitions = transformed_parts
-        return new_df
-
-    def transform(
-        self, df: Union[HDataFrame, VDataFrame, MixDataFrame]
-    ) -> Union[HDataFrame, VDataFrame, MixDataFrame]:
-        """Scale features of X according to feature_range."""
-        assert hasattr(self, '_scaler'), 'Scaler has not been fit yet.'
-        self._check_dataframe(df)
-        if isinstance(df, (HDataFrame, VDataFrame)):
-            return self._transform(df)
+    def fit(self, X):
+        if self.with_mean:
+            self.mean_ = X.mean()
         else:
-            return MixDataFrame(
-                partitions=[self._transform(part) for part in df.partitions]
+            self.mean_ = None
+        if self.with_std:
+            self.var_ = X.var(ddof=0)
+            self.scale_ = X.std(ddof=0)
+        else:
+            self.var_ = None
+            self.scale_ = None
+
+    def transform(self, X: pd.DataFrame):
+        if not hasattr(self, 'mean_') or not hasattr(self, 'scale_'):
+            raise RuntimeError("You must fit the scaler before calling transform.")
+        if self.with_mean:
+            X = X - self.mean_
+        if self.with_std:
+            X = X / self.scale_
+        return X
+
+    def fit_transform(self, X: pd.DataFrame):
+        self.fit(X)
+        return self.transform(X)
+
+    def inverse_transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        if not hasattr(self, 'mean_') or not hasattr(self, 'scale_'):
+            raise RuntimeError(
+                "You must fit the scaler before calling inverse_transform."
             )
-
-    def fit_transform(self, df: Union[HDataFrame, VDataFrame]):
-        """Fit to X, then transform X."""
-        self.fit(df)
-        return self.transform(df)
-
-    def get_params(self) -> Dict[str, Any]:
-        assert hasattr(self, '_scaler'), 'Scaler has not been fit yet.'
-
-        return {
-            'columns': self._columns,
-            'min': self._scaler.min_,
-            'scale': self._scaler.scale_,
-        }
+        if self.with_std:
+            X = X * self.scale_
+        if self.with_mean:
+            X = X + self.mean_
+        return X
 
 
 class StandardScaler(_PreprocessBase):
@@ -165,7 +123,7 @@ class StandardScaler(_PreprocessBase):
 
     def _fit_horizontal(
         self, partitions: List[Partition], aggregator: Aggregator = None
-    ) -> SkStandardScaler:
+    ) -> _STDScaler:
         means = [part.mean(numeric_only=True) for part in partitions]
         cnts = [part.count(numeric_only=True) for part in partitions]
         mean = reveal(
@@ -174,13 +132,13 @@ class StandardScaler(_PreprocessBase):
             )
         )
         count = reveal(aggregator.sum([cnt.values for cnt in cnts], axis=0))
-        scaler = SkStandardScaler(with_mean=self._with_mean, with_std=self._with_std)
+        scaler = _STDScaler(with_mean=self._with_mean, with_std=self._with_std)
         scaler.mean_ = mean if self._with_mean else None
 
         if self._with_std:
 
-            def _cal_var(mean, df: pd.DataFrame):
-                return ((df - mean) ** 2).sum()
+            def _cal_var(_mean, df: pd.DataFrame):
+                return ((df - _mean) ** 2).sum()
 
             vars = [part.data.device(_cal_var)(mean, part.data) for part in partitions]
             scaler.var_ = reveal(aggregator.sum(vars, axis=0))
@@ -191,8 +149,8 @@ class StandardScaler(_PreprocessBase):
 
         return scaler
 
-    def _concatenate_scaler(self, scalers: List[SkStandardScaler]) -> SkStandardScaler:
-        scaler = SkStandardScaler(with_mean=self._with_mean, with_std=self._with_std)
+    def _concatenate_scaler(self, scalers: List[_STDScaler]) -> _STDScaler:
+        scaler = _STDScaler(with_mean=self._with_mean, with_std=self._with_std)
         if self._with_mean:
             scaler.mean_ = np.concatenate([scaler.mean_ for scaler in scalers])
         else:
@@ -224,7 +182,7 @@ class StandardScaler(_PreprocessBase):
             if df.partition_way == PartitionWay.HORIZONTAL:
                 if self._with_mean or self._with_std:
                     assert aggregator is not None, (
-                        'Should provide a aggregator for horinzontal partitioned'
+                        'Should provide a aggregator for horizontal partitioned'
                         'MixDataFrame when with_mean or with_std is true'
                     )
 
@@ -236,7 +194,7 @@ class StandardScaler(_PreprocessBase):
             else:
                 scalers = [
                     self._fit_horizontal(
-                        hdf.partitions.values(),
+                        list(hdf.partitions.values()),
                         aggregator if aggregator is not None else hdf.aggregator,
                     )
                     for hdf in df.partitions
@@ -244,14 +202,14 @@ class StandardScaler(_PreprocessBase):
             self._scaler = self._concatenate_scaler(scalers)
         elif isinstance(df, HDataFrame):
             self._scaler = self._fit_horizontal(
-                df.partitions.values(),
+                list(df.partitions.values()),
                 aggregator if aggregator is not None else df.aggregator,
             )
         else:
             # VDataFrame
-            def _sk_fit(with_mean, with_std, df: pd.DataFrame):
-                scaler = SkStandardScaler(with_mean=with_mean, with_std=with_std)
-                scaler.fit(df)
+            def _sk_fit(with_mean, with_std, _df: pd.DataFrame):
+                scaler = _STDScaler(with_mean=with_mean, with_std=with_std)
+                scaler.fit(_df)
                 return scaler
 
             scalers = [
@@ -261,25 +219,25 @@ class StandardScaler(_PreprocessBase):
             self._scaler = self._concatenate_scaler(scalers)
 
     def _transform(
-        self, scaler: SkStandardScaler, df: Union[HDataFrame, VDataFrame]
+        self, scaler: _STDScaler, df: Union[HDataFrame, VDataFrame]
     ) -> Union[HDataFrame, VDataFrame]:
-        def _df_transform(scaler: SkStandardScaler, df: pd.DataFrame):
-            new_df = df.copy()
-            new_df.iloc[:, :] = scaler.transform(df)
-            return new_df
+        def _df_transform(_df: pd.DataFrame, _scaler: _STDScaler):
+            _new_df = _df.copy()
+            _new_df.iloc[:, :] = _scaler.transform(_df)
+            return _new_df
 
         transformed_parts = {}
         if isinstance(df, HDataFrame):
             for device, part in df.partitions.items():
-                transformed_parts[device] = Partition(
-                    device(_df_transform)(scaler, part.data)
+                transformed_parts[device] = part.apply_func(
+                    _df_transform, _scaler=scaler
                 )
         elif isinstance(df, VDataFrame):
             start_idx = 0
             end_idx = 0
             for device, part in df.partitions.items():
                 end_idx += len(part.columns)
-                part_scaler = SkStandardScaler(
+                part_scaler = _STDScaler(
                     with_mean=self._with_mean, with_std=self._with_std
                 )
                 if self._with_mean:
@@ -292,8 +250,8 @@ class StandardScaler(_PreprocessBase):
                 else:
                     part_scaler.var_ = None
                     part_scaler.scale_ = None
-                transformed_parts[device] = Partition(
-                    device(_df_transform)(part_scaler, part.data)
+                transformed_parts[device] = part.apply_func(
+                    _df_transform, _scaler=part_scaler
                 )
                 start_idx = end_idx
         else:
@@ -314,7 +272,7 @@ class StandardScaler(_PreprocessBase):
             df: the X to transform.
 
         Returns:
-            a federated dataframe correspondint to the input X.
+            a federated dataframe corresponding to the input X.
         """
         # Sanity check.
         assert hasattr(self, '_scaler'), 'Scaler has not been fit yet.'
@@ -332,25 +290,26 @@ class StandardScaler(_PreprocessBase):
 
         if isinstance(df, (HDataFrame, VDataFrame)):
             return self._transform(self._scaler, df)
-        else:
-            new_parts = []
-            if df.partition_way == PartitionWay.HORIZONTAL:
-                for part in df.partitions:
-                    new_parts.append(self._transform(self._scaler, part))
-            else:
-                start_idx = 0
-                end_idx = 0
-                for part in df.partitions:
-                    end_idx += len(part.columns)
-                    part_scaler = SkStandardScaler(
-                        with_mean=self._with_mean, with_std=self._with_std
-                    )
-                    part_scaler.mean_ = self._scaler.mean_[start_idx:end_idx]
-                    part_scaler.var_ = self._scaler.var_[start_idx:end_idx]
-                    part_scaler.scale_ = self._scaler.scale_[start_idx:end_idx]
-                    new_parts.append(self._transform(part_scaler, part))
-                    start_idx = end_idx
+
+        new_parts = []
+        if df.partition_way == PartitionWay.HORIZONTAL:
+            for part in df.partitions:
+                new_parts.append(self._transform(self._scaler, part))
             return MixDataFrame(partitions=new_parts)
+        else:
+            start_idx = 0
+            end_idx = 0
+            for part in df.partitions:
+                end_idx += len(part.columns)
+                part_scaler = _STDScaler(
+                    with_mean=self._with_mean, with_std=self._with_std
+                )
+                part_scaler.mean_ = self._scaler.mean_[start_idx:end_idx]
+                part_scaler.var_ = self._scaler.var_[start_idx:end_idx]
+                part_scaler.scale_ = self._scaler.scale_[start_idx:end_idx]
+                new_parts.append(self._transform(part_scaler, part))
+                start_idx = end_idx
+        return MixDataFrame(partitions=new_parts)
 
     def fit_transform(
         self, df: Union[HDataFrame, VDataFrame], aggregator: Aggregator = None

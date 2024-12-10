@@ -1,8 +1,22 @@
+# Copyright 2024 Ant Group Co., Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import pandas as pd
 import pytest
 from sklearn.datasets import load_iris
 
-from secretflow.data.base import Partition
+from secretflow.data import partition
 from secretflow.data.vertical.dataframe import VDataFrame
 from secretflow.stats import table_statistics
 
@@ -20,10 +34,10 @@ def prod_env_and_data(sf_production_setup_devices):
     v_alice, v_bob = data.iloc[:, :2], data.iloc[:, 2:]
     df_v = VDataFrame(
         partitions={
-            sf_production_setup_devices.alice: Partition(
+            sf_production_setup_devices.alice: partition(
                 sf_production_setup_devices.alice(lambda: v_alice)()
             ),
-            sf_production_setup_devices.bob: Partition(
+            sf_production_setup_devices.bob: partition(
                 sf_production_setup_devices.bob(lambda: v_bob)()
             ),
         }

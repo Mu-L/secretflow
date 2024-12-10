@@ -11,16 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from typing import List
-
-import jax.numpy as jnp
-import numpy as np
+import math
+from typing import List, Union
 
 import secretflow as sf
 from secretflow.data.vertical import VDataFrame
-from secretflow.device import SPU
+from secretflow.device import PYU, SPU, DeviceObject
 from secretflow.preprocessing.scaler import StandardScaler
+from secretflow.utils.blocked_ops import block_compute_vdata
 
 
 class PearsonR:
@@ -39,33 +37,40 @@ class PearsonR:
         device: SPU Device
     """
 
-    def __init__(self, device: SPU):
-        self.spu_device = device
+    def __init__(self, device: Union[SPU, PYU]):
+        self.device = device
 
-    def pearsonr(self, vdata: VDataFrame, standardize: bool = True):
+    def pearsonr(
+        self,
+        data: Union[VDataFrame, DeviceObject],
+        standardize: bool = True,
+        infeed_elements_limit: int = 20000000,
+    ):
         """
         Attributes:
 
-            vdata : VDataFrame
-                vertical slice dataset.
+            data : VDataFrame or DeviceObject
+                vertical slice dataset or pyu object of dataframe liked
             standardize: bool
-                if need standardize dataset. dataset must be standardized
+                if you need standardize dataset. dataset must be standardized
                 please keep standardize=True, unless dataset is already standardized.
                 standardize purpose:
                 - reduce the result number of matrix xtx, avoid overflow in secret sharing.
                 - after standardize, the variance is 1 and the mean is 0, which can simplify the calculation.
         """
+
         if standardize:
             scaler = StandardScaler()
-            vdata = scaler.fit_transform(vdata)
-        obj_list = [d.data.to(self.spu_device) for d in vdata.partitions.values()]
-
+            vdata = scaler.fit_transform(data)
+        else:
+            vdata = data
         rows = vdata.shape[0]
+        cols = vdata.shape[1]
+        row_number = max([math.ceil(infeed_elements_limit / cols), 1])
 
-        def spu_xtx(objs: List[np.ndarray]):
-            data = jnp.concatenate(objs, axis=1)
-            return jnp.matmul(data.transpose(), data)
+        xTx = block_compute_vdata(
+            vdata, row_number, self.device, lambda x: x.T @ x, lambda x, y: x + y
+        )
 
-        spu_obj = self.spu_device(spu_xtx)(obj_list)
-        xtx = sf.reveal(spu_obj)
+        xtx = sf.reveal(xTx)
         return xtx / (rows - 1)
