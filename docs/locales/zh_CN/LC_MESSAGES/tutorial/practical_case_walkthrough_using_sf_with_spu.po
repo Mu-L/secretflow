@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the SecretFlow package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2023.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: SecretFlow \n"
@@ -302,3 +301,4 @@ msgstr ""
 #: ../../tutorial/practical_case_walkthrough_using_sf_with_spu.ipynb:4287
 msgid "下一步，自己实现任意的计算（jax实现的计算），对于TF，pytorch的支持WIP"
 msgstr ""
+

@@ -1,3 +1,17 @@
+# Copyright 2024 Ant Group Co., Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from abc import ABC, abstractmethod
 from enum import Enum, unique
 from typing import Union
@@ -7,6 +21,14 @@ import numpy as np
 
 from secretflow.utils import sigmoid as appr_sig
 from secretflow.utils.errors import InvalidArgumentError
+
+
+@unique
+class LinkType(Enum):
+    Logit = 'Logit'
+    Log = 'Log'
+    Reciprocal = 'Reciprocal'
+    Identity = 'Identity'
 
 
 class Linker(ABC):
@@ -28,6 +50,10 @@ class Linker(ABC):
 
 
 class LinkLogit(Linker):
+    @staticmethod
+    def link_type() -> Linker:
+        return LinkType.Logit
+
     def link(self, mu: np.ndarray) -> np.ndarray:
         return jnp.log(mu / (1 - mu))
 
@@ -42,6 +68,10 @@ class LinkLogit(Linker):
 
 
 class LinkLog(Linker):
+    @staticmethod
+    def link_type() -> Linker:
+        return LinkType.Log
+
     def link(self, mu: np.ndarray) -> np.ndarray:
         return jnp.log(mu)
 
@@ -56,6 +86,10 @@ class LinkLog(Linker):
 
 
 class LinkReciprocal(Linker):
+    @staticmethod
+    def link_type() -> Linker:
+        return LinkType.Reciprocal
+
     def link(self, mu: np.ndarray) -> np.ndarray:
         return 1 / mu
 
@@ -69,7 +103,11 @@ class LinkReciprocal(Linker):
         return 1 / self.response_derivative(mu)
 
 
-class LinkIndentity(Linker):
+class LinkIdentity(Linker):
+    @staticmethod
+    def link_type() -> Linker:
+        return LinkType.Identity
+
     def link(self, mu: np.ndarray) -> np.ndarray:
         return mu
 
@@ -81,14 +119,6 @@ class LinkIndentity(Linker):
 
     def link_derivative(self, mu: np.ndarray) -> np.ndarray:
         return jnp.ones(mu.shape)
-
-
-@unique
-class LinkType(Enum):
-    Logit = 'Logit'
-    Log = 'Log'
-    Reciprocal = 'Reciprocal'
-    Indentity = 'Indentity'
 
 
 def get_link(t: Union[LinkType, str]) -> Linker:
@@ -104,7 +134,7 @@ def get_link(t: Union[LinkType, str]) -> Linker:
         return LinkLog()
     elif t is LinkType.Reciprocal:
         return LinkReciprocal()
-    elif t is LinkType.Indentity:
-        return LinkIndentity()
+    elif t is LinkType.Identity:
+        return LinkIdentity()
     else:
         raise InvalidArgumentError(f'Unsupported link: {t}')

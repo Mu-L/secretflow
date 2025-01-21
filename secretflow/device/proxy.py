@@ -18,12 +18,13 @@ from functools import wraps
 from typing import Dict, Type
 
 import jax
-import ray
 
 import secretflow.distributed as sfd
+from secretflow.distributed.const import DISTRIBUTION_MODE
+from secretflow.distributed.ray_op import resolve_args
+from secretflow.utils.errors import UnexpectedError
 from secretflow.utils.logging import LOG_FORMAT, get_logging_level
 
-from . import link
 from .device import PYU, Device, DeviceObject, PYUObject
 
 _WRAPPABLE_DEVICE_OBJ: Dict[Type[DeviceObject], Type[Device]] = {PYUObject: PYU}
@@ -31,7 +32,6 @@ _WRAPPABLE_DEVICE_OBJ: Dict[Type[DeviceObject], Type[Device]] = {PYUObject: PYU}
 
 def _actor_wrapper(device_object_type, name, num_returns):
     def wrapper(self, *args, **kwargs):
-        # device object type check and unwrap
         _num_returns = kwargs.pop('_num_returns', num_returns)
         value_flat, value_tree = jax.tree_util.tree_flatten((args, kwargs))
         for i, value in enumerate(value_flat):
@@ -49,9 +49,7 @@ def _actor_wrapper(device_object_type, name, num_returns):
             )
         )
         handle = getattr(self.data, name)
-        # TODO @raofei: 支持public_reveal装饰器
         res = handle.options(num_returns=_num_returns).remote(*args, **kwargs)
-
         if _num_returns == 1:
             return device_object_type(self.device, res)
         else:
@@ -63,19 +61,7 @@ def _actor_wrapper(device_object_type, name, num_returns):
 def _cls_wrapper(cls):
     def ray_get_wrapper(method):
         def wrapper(*args, **kwargs):
-            arg_flat, arg_tree = jax.tree_util.tree_flatten((args, kwargs))
-            refs = {
-                pos: arg
-                for pos, arg in enumerate(arg_flat)
-                if isinstance(arg, ray.ObjectRef)
-            }
-
-            if refs:
-                actual_vals = ray.get(list(refs.values()))
-                for pos, actual_val in zip(refs.keys(), actual_vals):
-                    arg_flat[pos] = actual_val
-                args, kwargs = jax.tree_util.tree_unflatten(arg_tree, arg_flat)
-
+            args, kwargs = resolve_args(*args, **kwargs)
             return method(*args, **kwargs)
 
         return wrapper
@@ -100,6 +86,7 @@ def proxy(
     device_object_type: Type[DeviceObject],
     max_concurrency: int = None,
     _simulation_max_concurrency: int = None,
+    num_gpus: int = 0,
 ):
     """Define a device class which should accept DeviceObject as method parameters and return DeviceObject.
 
@@ -137,9 +124,10 @@ def proxy(
     Args:
         device_object_type (Type[DeviceObject]): DeviceObject type, eg. PYUObject.
         max_concurrency (int): Actor threadpool size.
-        _simulation_max_concurrencty (int): Actor threadpool size only for
+        _simulation_max_concurrency (int): Actor threadpool size only for
             simulation (single controller mode). This argument takes effect only
             when max_concurrency is None.
+        num_gpus: The number of GPUs to use for training. Default is 0
 
     Returns:
         Callable: Wrapper function.
@@ -149,7 +137,13 @@ def proxy(
     ), f'{device_object_type} is not allowed to be proxy'
 
     def make_proxy(cls):
-        ActorClass = _cls_wrapper(cls)
+        if hasattr(cls, '__is_wrapped__'):
+            raise UnexpectedError(
+                f"class {cls} is already wrapped, do not wrap it again!"
+            )
+        # create new Class, to prevent multiple wrapping when using proxy() for the same class multiple times.
+        actor_cls = type(f'Actor{cls.__name__}', (cls,), {'__is_wrapped__': True})
+        ActorClass = _cls_wrapper(actor_cls)
 
         class ActorProxy(device_object_type):
             def __init__(self, *args, **kwargs):
@@ -166,28 +160,34 @@ def proxy(
                     f'{expected_device_type}, got {type(device)}'
                 )
 
-                if not issubclass(cls, link.Link):
-                    del kwargs['device']
+                # jzc: replace issubclass with this check, so we don't need to import Link here.
+                if "device.link.Link" not in f"{cls.__base__}":
+                    kwargs.pop('device', None)
+                    kwargs.pop('production_mode', None)
 
                 max_concur = max_concurrency
                 if (
                     max_concur is None
                     and _simulation_max_concurrency is not None
-                    and not sfd.production_mode()
+                    and sfd.get_distribution_mode() == DISTRIBUTION_MODE.SIMULATION
                 ):
                     max_concur = _simulation_max_concurrency
 
-                logging.info(
+                logging.debug(
                     f'Create proxy actor {ActorClass} with party {device.party}.'
                 )
                 data = sfd.remote(ActorClass).party(device.party)
                 if max_concur is not None:
                     data = data.options(max_concurrency=max_concur)
+                if num_gpus > 0:
+                    data = data.options(num_gpus=num_gpus)
+                    kwargs["use_gpu"] = True
+
                 data = data.remote(*args, **kwargs)
                 self.actor_class = ActorClass
                 super().__init__(device, data)
 
-        methods = inspect.getmembers(cls, inspect.isfunction)
+        methods = inspect.getmembers(actor_cls, inspect.isfunction)
         for name, method in methods:
             if name == '__init__':
                 continue
@@ -204,8 +204,11 @@ def proxy(
                     num_returns = len(sig.return_annotation)
                 else:
                     num_returns = 1
+
             wrapped_method = wraps(method)(
-                _actor_wrapper(device_object_type, name, num_returns)
+                _actor_wrapper(
+                    device_object_type, name, num_returns
+                )  # DeviceObject, method_name, num_returns
             )
             setattr(ActorProxy, name, wrapped_method)
 
@@ -213,7 +216,6 @@ def proxy(
         ActorProxy.__module__ = cls.__module__
         ActorProxy.__name__ = name
         ActorProxy.__qualname__ = name
-
         return ActorProxy
 
     return make_proxy
