@@ -1,3 +1,17 @@
+# Copyright 2024 Ant Group Co., Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import tempfile
 
@@ -7,7 +21,7 @@ import pytest
 import sklearn.metrics
 
 from secretflow import reveal
-from secretflow.data.base import Partition
+from secretflow.data import partition
 from secretflow.data.ndarray import (
     histogram,
     load,
@@ -22,7 +36,7 @@ from secretflow.data.ndarray import (
 from secretflow.data.split import train_test_split
 from secretflow.data.vertical import VDataFrame
 from secretflow.utils.errors import InvalidArgumentError
-from secretflow.utils.simulation.datasets import create_ndarray
+from secretflow_fl.utils.simulation.datasets_fl import create_ndarray
 
 
 def array_equal(a: np.ndarray, b: np.ndarray) -> bool:
@@ -185,8 +199,8 @@ def test_train_test_split_on_vdataframe_should_ok(prod_env_and_data):
     )
     df = VDataFrame(
         {
-            env.alice: Partition(data=env.alice(lambda: df_alice)()),
-            env.bob: Partition(data=env.bob(lambda: df_bob)()),
+            env.alice: partition(data=env.alice(lambda: df_alice)()),
+            env.bob: partition(data=env.bob(lambda: df_bob)()),
         }
     )
     fed_arr = df.values
@@ -227,8 +241,8 @@ def test_shuffle_should_ok(prod_env_and_data):
     )
     df = VDataFrame(
         {
-            env.alice: Partition(data=env.alice(lambda: df_alice)()),
-            env.bob: Partition(data=env.bob(lambda: df_bob)()),
+            env.alice: partition(data=env.alice(lambda: df_alice)()),
+            env.bob: partition(data=env.bob(lambda: df_bob)()),
         }
     )
     fed_arr = df.values

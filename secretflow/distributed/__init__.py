@@ -13,13 +13,33 @@
 # limitations under the License.
 
 
-from .primitive import get, kill, production_mode, remote, set_production, shutdown
+from .const import DISTRIBUTION_MODE, FED_OBJECT_TYPES
+from .primitive import (
+    init,
+    active_sf_cluster,
+    get,
+    get_cluster_available_resources,
+    get_current_cluster_idx,
+    get_distribution_mode,
+    in_ic_mode,
+    kill,
+    remote,
+    set_distribution_mode,
+    shutdown,
+)
 
 __all__ = [
+    'DISTRIBUTION_MODE',
+    'FED_OBJECT_TYPES',
+    'init',
     'get',
     'kill',
-    'production_mode',
     'remote',
-    'set_production',
     'shutdown',
+    'set_distribution_mode',
+    'get_distribution_mode',
+    'get_current_cluster_idx',
+    'active_sf_cluster',
+    'in_ic_mode',
+    'get_cluster_available_resources',
 ]
