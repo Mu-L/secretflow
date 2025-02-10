@@ -1,9 +1,23 @@
+# Copyright 2024 Ant Group Co., Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import numpy as np
 import pandas as pd
 import sklearn
 from statsmodels.stats.outliers_influence import variance_inflation_factor as vif
 
-from secretflow.data.base import Partition
+from secretflow.data import partition
 from secretflow.data.vertical import VDataFrame
 from secretflow.device.driver import reveal
 from secretflow.stats import SSVertVIF
@@ -20,7 +34,7 @@ def _statsmodels_vif(data):
 
 def _run_vif(env, vdata, data):
     v_vif = SSVertVIF(env.spu)
-    ss_vif = v_vif.vif(vdata)
+    ss_vif = v_vif.vif(vdata, infeed_elements_limit=1000)
     vif = _statsmodels_vif(data)
     # for nan/inf value in statsmodels' results, see NOTICE of SSVertVIF.
     ss_vif = np.select([ss_vif > 1000], [1000], ss_vif)
@@ -50,10 +64,10 @@ def test_breast_cancer(sf_production_setup_devices):
     data = pd.DataFrame(nd_data, copy=True)
     vdata = VDataFrame(
         partitions={
-            sf_production_setup_devices.alice: Partition(
+            sf_production_setup_devices.alice: partition(
                 sf_production_setup_devices.alice(lambda: alice_df)()
             ),
-            sf_production_setup_devices.bob: Partition(
+            sf_production_setup_devices.bob: partition(
                 sf_production_setup_devices.bob(lambda: bob_df)()
             ),
         }
@@ -74,10 +88,10 @@ def test_const_col_data(sf_production_setup_devices):
     data = pd.DataFrame(nd_data, copy=True)
     vdata = VDataFrame(
         partitions={
-            sf_production_setup_devices.alice: Partition(
+            sf_production_setup_devices.alice: partition(
                 sf_production_setup_devices.alice(lambda: alice_df)()
             ),
-            sf_production_setup_devices.bob: Partition(
+            sf_production_setup_devices.bob: partition(
                 sf_production_setup_devices.bob(lambda: bob_df)()
             ),
         }
@@ -98,10 +112,10 @@ def test_linear_col_data(sf_production_setup_devices):
     data = pd.DataFrame(nd_data, copy=True)
     vdata = VDataFrame(
         partitions={
-            sf_production_setup_devices.alice: Partition(
+            sf_production_setup_devices.alice: partition(
                 sf_production_setup_devices.alice(lambda: alice_df)()
             ),
-            sf_production_setup_devices.bob: Partition(
+            sf_production_setup_devices.bob: partition(
                 sf_production_setup_devices.bob(lambda: bob_df)()
             ),
         }
